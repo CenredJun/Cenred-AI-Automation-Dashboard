@@ -466,12 +466,11 @@
     // Netlify itself, leave it as empty string for relative paths.
     // ============================================================
     const PROXY_BASE = ''; // e.g. 'https://ai-automation-dashboard.netlify.app'
-    const ENDPOINTS = {
-      lead:    PROXY_BASE + '/.netlify/functions/lead',
-      invoice: PROXY_BASE + '/.netlify/functions/invoice',
-      digest:  PROXY_BASE + '/.netlify/functions/digest',
-    };
-
+const ENDPOINTS = {
+  lead:    PROXY_BASE + '/.netlify/functions/lead',
+  invoice: 'https://cenred.app.n8n.cloud/webhook/invoice-gen',
+  digest:  'https://cenred.app.n8n.cloud/webhook/daily-digest',
+};
     // ============================================================
     // Sample payloads
     // ============================================================
