@@ -1,0 +1,190 @@
+{
+  "name": "Lead Qualify — Webhook → Claude → Airtable → Slack",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-qualify",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook (lead form)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 400],
+      "webhookId": "lead-qualify"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "anthropicApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-6\",\n  \"max_tokens\": 512,\n  \"temperature\": 0.3,\n  \"system\": \"You are a senior B2B sales qualifier.\\n\\nTASK\\nGiven a lead's name, email, company and message, score them as HOT, WARM or COLD.\\n\\nSCORING SIGNALS\\n- HOT: specific business problem mentioned, named company, corporate email domain (not gmail/yahoo/hotmail/outlook), urgency signals (asap, this week, deadline, budget mentioned), buying language (need, looking for, evaluating, ready to).\\n- WARM: real interest but vague timeline, mentions a problem but no urgency, mid-quality email/company info.\\n- COLD: free email domain + generic message, no company, no specific need, vague curiosity, students, job seekers, spam patterns.\\n\\nOUTPUT FORMAT (CRITICAL)\\nReturn ONLY valid JSON — no prose, no code fences, no preamble. Match this shape exactly:\\n{\\n  \\\"score\\\": \\\"HOT|WARM|COLD\\\",\\n  \\\"reasoning\\\": \\\"<one short sentence, max 160 chars, why this score>\\\",\\n  \\\"suggestedAction\\\": \\\"<one short sentence, max 140 chars, what the sales rep should do next>\\\"\\n}\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Name: {{ $json.body.name }}\\nEmail: {{ $json.body.email }}\\nCompany: {{ $json.body.company || 'not provided' }}\\nMessage: {{ $json.body.message }}\\n\\nReturn the qualification JSON now.\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "claude-qualify",
+      "name": "Claude — Qualify Lead",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 400],
+      "credentials": {
+        "anthropicApi": {
+          "id": "REPLACE_WITH_ANTHROPIC_CRED_ID",
+          "name": "Anthropic — Claude"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Parse Claude's qualification JSON and merge with the original lead.\nconst lead = $('Webhook (lead form)').item.json.body || {};\nconst claudeResp = $json;\n\nfunction extractText(node) {\n  if (node && Array.isArray(node.content) && node.content[0] && typeof node.content[0].text === 'string') {\n    return node.content[0].text;\n  }\n  throw new Error('Could not extract Claude text response');\n}\n\nfunction safeParseJson(raw) {\n  const cleaned = raw.trim().replace(/^```(?:json)?\\s*/i, '').replace(/```$/i, '').trim();\n  return JSON.parse(cleaned);\n}\n\nconst raw = extractText(claudeResp);\nconst parsed = safeParseJson(raw);\n\nconst score = (parsed.score || 'COLD').toUpperCase();\nconst reasoning = parsed.reasoning || '';\nconst suggestedAction = parsed.suggestedAction || '';\n\nreturn [{\n  json: {\n    name: lead.name || '',\n    email: lead.email || '',\n    company: lead.company || '',\n    message: lead.message || '',\n    score,\n    reasoning,\n    suggestedAction,\n    isHot: score === 'HOT',\n    timestamp: new Date().toISOString(),\n    startTs: lead.startTs || Date.now(),\n  },\n}];"
+      },
+      "id": "parse-qualify",
+      "name": "Parse Qualification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [720, 400]
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "mode": "list",
+          "value": "REPLACE_WITH_AIRTABLE_BASE_ID"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Name": "={{ $json.name }}",
+            "Email": "={{ $json.email }}",
+            "Company": "={{ $json.company }}",
+            "Message": "={{ $json.message }}",
+            "Score": "={{ $json.score }}",
+            "Reasoning": "={{ $json.reasoning }}",
+            "SuggestedAction": "={{ $json.suggestedAction }}",
+            "Timestamp": "={{ $json.timestamp }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "airtable-append",
+      "name": "Airtable — Append Lead",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [960, 400],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "REPLACE_WITH_AIRTABLE_CRED_ID",
+          "name": "Airtable — Personal Access Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "is-hot",
+              "leftValue": "={{ $('Parse Qualification').item.json.score }}",
+              "rightValue": "HOT",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "switch-hot",
+      "name": "If HOT?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1200, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_WEBHOOK_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": \":fire: *HOT LEAD* — {{ $('Parse Qualification').item.json.name }} ({{ $('Parse Qualification').item.json.company || 'no company' }})\",\n  \"blocks\": [\n    {\n      \"type\": \"header\",\n      \"text\": { \"type\": \"plain_text\", \"text\": \"🔥 New HOT Lead\" }\n    },\n    {\n      \"type\": \"section\",\n      \"fields\": [\n        { \"type\": \"mrkdwn\", \"text\": \"*Name:*\\n{{ $('Parse Qualification').item.json.name }}\" },\n        { \"type\": \"mrkdwn\", \"text\": \"*Email:*\\n{{ $('Parse Qualification').item.json.email }}\" },\n        { \"type\": \"mrkdwn\", \"text\": \"*Company:*\\n{{ $('Parse Qualification').item.json.company || '—' }}\" },\n        { \"type\": \"mrkdwn\", \"text\": \"*Score:*\\n🔥 HOT\" }\n      ]\n    },\n    {\n      \"type\": \"section\",\n      \"text\": { \"type\": \"mrkdwn\", \"text\": \"*Message:*\\n>{{ $('Parse Qualification').item.json.message }}\" }\n    },\n    {\n      \"type\": \"section\",\n      \"text\": { \"type\": \"mrkdwn\", \"text\": \"*AI reasoning:*\\n{{ $('Parse Qualification').item.json.reasoning }}\\n\\n*Suggested next step:*\\n{{ $('Parse Qualification').item.json.suggestedAction }}\" }\n    },\n    {\n      \"type\": \"context\",\n      \"elements\": [{ \"type\": \"mrkdwn\", \"text\": \"Logged to Airtable · {{ $('Parse Qualification').item.json.timestamp }}\" }]\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "slack-alert",
+      "name": "Slack — Alert #leads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1440, 320]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"ok\": true,\n  \"score\": {{ JSON.stringify($('Parse Qualification').item.json.score) }},\n  \"reasoning\": {{ JSON.stringify($('Parse Qualification').item.json.reasoning) }},\n  \"suggestedAction\": {{ JSON.stringify($('Parse Qualification').item.json.suggestedAction) }},\n  \"name\": {{ JSON.stringify($('Parse Qualification').item.json.name) }},\n  \"email\": {{ JSON.stringify($('Parse Qualification').item.json.email) }},\n  \"company\": {{ JSON.stringify($('Parse Qualification').item.json.company) }},\n  \"airtableId\": {{ JSON.stringify($('Airtable — Append Lead').item.json.id || null) }},\n  \"slackAlertSent\": {{ $('Parse Qualification').item.json.score === 'HOT' }},\n  \"timing\": { \"totalMs\": {{ Date.now() - ($('Parse Qualification').item.json.startTs || Date.now()) }} }\n}",
+        "options": {}
+      },
+      "id": "respond-ok",
+      "name": "Respond to UI",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1680, 400]
+    }
+  ],
+  "connections": {
+    "Webhook (lead form)": {
+      "main": [[{ "node": "Claude — Qualify Lead", "type": "main", "index": 0 }]]
+    },
+    "Claude — Qualify Lead": {
+      "main": [[{ "node": "Parse Qualification", "type": "main", "index": 0 }]]
+    },
+    "Parse Qualification": {
+      "main": [[{ "node": "Airtable — Append Lead", "type": "main", "index": 0 }]]
+    },
+    "Airtable — Append Lead": {
+      "main": [[{ "node": "If HOT?", "type": "main", "index": 0 }]]
+    },
+    "If HOT?": {
+      "main": [
+        [{ "node": "Slack — Alert #leads", "type": "main", "index": 0 }],
+        [{ "node": "Respond to UI", "type": "main", "index": 0 }]
+      ]
+    },
+    "Slack — Alert #leads": {
+      "main": [[{ "node": "Respond to UI", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    { "name": "lead-qualify" },
+    { "name": "claude" },
+    { "name": "airtable" },
+    { "name": "slack" }
+  ],
+  "triggerCount": 1,
+  "versionId": "1.0.0"
+}

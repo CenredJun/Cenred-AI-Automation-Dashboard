@@ -1,0 +1,15 @@
+{
+  "name": "ai-automation-dashboard",
+  "version": "1.0.0",
+  "description": "Live n8n workflow showcase — 3 real automations (lead qualify, invoice gen, daily digest) running from one dashboard. Powered by n8n + Claude API + Netlify.",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "dev": "netlify dev",
+    "deploy": "netlify deploy --prod"
+  },
+  "author": "Cenred (Cj)",
+  "license": "MIT"
+}

@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Automation Dashboard — Cenred AI</title>
+  <meta name="description" content="Three live n8n automations running from one dashboard: lead qualification, invoice generation, daily digest. Powered by Claude API." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:#0b1120; --bg2:#0f172a; --surface:#111c33; --surface2:#172545;
+      --border:#1f2d4d; --border2:#2a3a60;
+      --ink:#f1f5f9; --ink2:#cbd5e1; --ink3:#94a3b8; --ink4:#64748b;
+      --green:#22c55e; --green-soft:rgba(34,197,94,0.12); --green-border:rgba(34,197,94,0.32);
+      --amber:#f59e0b; --amber-soft:rgba(245,158,11,0.14); --amber-border:rgba(245,158,11,0.34);
+      --red:#ef4444; --red-soft:rgba(239,68,68,0.14); --red-border:rgba(239,68,68,0.34);
+      --blue:#3b82f6; --blue-soft:rgba(59,130,246,0.12);
+      --slate:#475569;
+    }
+
+    html { scroll-behavior: smooth; }
+    body { font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif; background:var(--bg); color:var(--ink); font-size:14px; line-height:1.55; min-height:100vh; -webkit-font-smoothing:antialiased; }
+    body::before {
+      content:''; position:fixed; inset:0; pointer-events:none; z-index:0;
+      background:
+        radial-gradient(800px circle at 10% -10%, rgba(34,197,94,0.07), transparent 40%),
+        radial-gradient(800px circle at 95% 5%, rgba(59,130,246,0.06), transparent 40%);
+    }
+
+    /* ---------- Top bar ---------- */
+    nav { position:sticky; top:0; z-index:20; background:rgba(11,17,32,0.85); backdrop-filter:blur(14px); border-bottom:1px solid var(--border); padding:0 28px; height:58px; display:flex; align-items:center; justify-content:space-between; }
+    .nav-logo { display:flex; align-items:center; gap:11px; }
+    .nav-icon { width:30px; height:30px; background:linear-gradient(135deg, var(--green) 0%, #16a34a 100%); border-radius:8px; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:700; font-size:14px; box-shadow:0 4px 14px rgba(34,197,94,0.25); }
+    .nav-name { font-size:14px; font-weight:600; color:var(--ink); letter-spacing:-0.01em; }
+    .nav-sep { width:1px; height:14px; background:var(--border2); margin:0 6px; }
+    .nav-product { font-size:13px; color:var(--ink3); }
+    .nav-right { display:flex; align-items:center; gap:18px; }
+    .nav-link { font-size:13px; color:var(--ink3); text-decoration:none; transition:color 0.15s; }
+    .nav-link:hover { color:var(--ink); }
+    .system-status { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--ink3); padding:5px 11px; border:1px solid var(--green-border); background:var(--green-soft); border-radius:100px; }
+    .system-dot { width:7px; height:7px; background:var(--green); border-radius:50%; box-shadow:0 0 0 0 rgba(34,197,94,0.6); animation:pulse-dot 2.2s ease-in-out infinite; }
+    @keyframes pulse-dot { 0%, 100% { box-shadow:0 0 0 0 rgba(34,197,94,0.5); } 50% { box-shadow:0 0 0 5px rgba(34,197,94,0); } }
+
+    /* ---------- Page ---------- */
+    .page { position:relative; z-index:1; max-width:1340px; margin:0 auto; padding:48px 28px 80px; }
+    .hero { margin-bottom:38px; }
+    .hero-label { display:inline-flex; align-items:center; gap:7px; font-size:11px; font-weight:600; letter-spacing:0.1em; text-transform:uppercase; color:var(--green); background:var(--green-soft); padding:5px 11px; border-radius:100px; margin-bottom:18px; border:1px solid var(--green-border); }
+    .hero h1 { font-size:clamp(30px,4.4vw,46px); font-weight:700; color:var(--ink); line-height:1.12; letter-spacing:-0.025em; margin-bottom:14px; max-width:780px; }
+    .hero h1 em { font-style:normal; background:linear-gradient(135deg, var(--green) 0%, #4ade80 100%); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
+    .hero-desc { font-size:16px; color:var(--ink2); max-width:680px; font-weight:300; line-height:1.6; }
+
+    /* ---------- Stats strip ---------- */
+    .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:32px; }
+    .stat { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:16px 18px; }
+    .stat-label { font-size:10px; font-weight:600; letter-spacing:0.12em; text-transform:uppercase; color:var(--ink4); margin-bottom:6px; }
+    .stat-value { font-size:22px; font-weight:600; color:var(--ink); letter-spacing:-0.02em; font-variant-numeric:tabular-nums; }
+    .stat-value .stat-unit { font-size:13px; color:var(--ink3); font-weight:400; margin-left:4px; }
+
+    /* ---------- Workflow grid ---------- */
+    .workflows { display:grid; grid-template-columns:repeat(3,1fr); gap:18px; }
+    .wf { background:var(--surface); border:1px solid var(--border); border-radius:14px; overflow:hidden; display:flex; flex-direction:column; transition:border-color 0.2s, box-shadow 0.2s; }
+    .wf:hover { border-color:var(--border2); }
+    .wf.running { border-color:var(--amber-border); box-shadow:0 0 0 1px var(--amber-border); }
+    .wf.done { border-color:var(--green-border); box-shadow:0 0 0 1px var(--green-border); }
+    .wf.error { border-color:var(--red-border); box-shadow:0 0 0 1px var(--red-border); }
+
+    .wf-header { padding:16px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; background:linear-gradient(180deg, var(--surface2) 0%, var(--surface) 100%); }
+    .wf-num { width:28px; height:28px; border-radius:7px; background:var(--bg2); border:1px solid var(--border2); color:var(--ink2); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:600; font-family:'JetBrains Mono',ui-monospace,monospace; flex-shrink:0; }
+    .wf-title { font-size:13px; font-weight:600; color:var(--ink); letter-spacing:-0.01em; }
+    .wf-status { margin-left:auto; display:flex; align-items:center; gap:6px; font-size:11px; font-weight:500; color:var(--ink3); padding:4px 9px; border-radius:100px; background:var(--bg2); border:1px solid var(--border2); }
+    .wf-status-dot { width:6px; height:6px; border-radius:50%; background:var(--ink4); }
+    .wf-status.idle .wf-status-dot { background:var(--green); }
+    .wf-status.idle { color:var(--green); border-color:var(--green-border); background:var(--green-soft); }
+    .wf-status.running .wf-status-dot { background:var(--amber); animation:pulse-dot 1.2s ease-in-out infinite; }
+    .wf-status.running { color:var(--amber); border-color:var(--amber-border); background:var(--amber-soft); }
+    .wf-status.done .wf-status-dot { background:var(--green); }
+    .wf-status.done { color:var(--green); border-color:var(--green-border); background:var(--green-soft); }
+    .wf-status.error .wf-status-dot { background:var(--red); }
+    .wf-status.error { color:var(--red); border-color:var(--red-border); background:var(--red-soft); }
+
+    .wf-body { padding:18px; flex:1; display:flex; flex-direction:column; gap:14px; }
+    .wf-desc { font-size:13px; color:var(--ink2); line-height:1.55; }
+    .wf-meta { display:flex; flex-wrap:wrap; gap:6px; }
+    .tag { display:inline-flex; align-items:center; font-size:10px; font-weight:500; padding:3px 8px; border-radius:5px; background:var(--bg2); color:var(--ink3); border:1px solid var(--border2); font-family:'JetBrains Mono',ui-monospace,monospace; letter-spacing:0; }
+
+    /* ---------- Form fields ---------- */
+    .form-grid { display:flex; flex-direction:column; gap:10px; }
+    .field { display:flex; flex-direction:column; gap:5px; }
+    .field-label { font-size:10px; font-weight:600; letter-spacing:0.08em; text-transform:uppercase; color:var(--ink4); }
+    input[type=text], input[type=email], input[type=number], textarea {
+      width:100%; padding:9px 11px; border:1px solid var(--border2); border-radius:7px;
+      font-family:'Inter',sans-serif; font-size:13px; background:var(--bg2); color:var(--ink);
+      transition:border-color 0.15s, box-shadow 0.15s;
+    }
+    input[type=text]:focus, input[type=email]:focus, input[type=number]:focus, textarea:focus {
+      outline:none; border-color:var(--green); box-shadow:0 0 0 3px var(--green-soft);
+    }
+    input::placeholder, textarea::placeholder { color:var(--ink4); }
+    textarea { resize:vertical; min-height:62px; line-height:1.5; }
+    .field-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+
+    /* line items (invoice) */
+    .lineitems { display:flex; flex-direction:column; gap:7px; }
+    .lineitem { display:grid; grid-template-columns:1fr 96px; gap:7px; }
+    .lineitem input { font-size:13px; }
+    .lineitem-amount { text-align:right; font-variant-numeric:tabular-nums; }
+
+    /* ---------- Buttons ---------- */
+    .btn { display:inline-flex; align-items:center; justify-content:center; gap:7px; padding:10px 16px; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; border:1px solid transparent; font-family:'Inter',sans-serif; transition:all 0.15s; line-height:1; }
+    .btn-primary { background:var(--green); color:#052e16; border-color:var(--green); }
+    .btn-primary:hover:not(:disabled) { background:#16a34a; border-color:#16a34a; }
+    .btn-primary:disabled { opacity:0.55; cursor:not-allowed; }
+    .btn-block { width:100%; padding:12px 16px; font-size:13px; }
+    .btn-outline { background:transparent; color:var(--ink2); border-color:var(--border2); font-weight:500; }
+    .btn-outline:hover:not(:disabled) { border-color:var(--green-border); color:var(--green); background:var(--green-soft); }
+    .btn-ghost { background:transparent; color:var(--ink3); border:1px dashed var(--border2); font-weight:500; padding:7px 11px; font-size:12px; }
+    .btn-ghost:hover { color:var(--ink); border-color:var(--border2); }
+    .btn-spinner { width:13px; height:13px; border:1.5px solid rgba(0,0,0,0.25); border-top-color:#052e16; border-radius:50%; animation:spin 0.8s linear infinite; display:none; }
+    .btn[data-loading="true"] .btn-spinner { display:inline-block; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+
+    .sample-row { display:flex; flex-wrap:wrap; gap:6px; }
+
+    /* ---------- Result panel ---------- */
+    .result { display:none; padding:14px; border-radius:9px; background:var(--bg2); border:1px solid var(--border); }
+    .result.active { display:block; animation:fadeIn 0.3s ease-out; }
+    @keyframes fadeIn { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
+
+    .result-row { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
+    .result-row:last-child { margin-bottom:0; }
+    .result-key { font-size:10px; font-weight:600; letter-spacing:0.1em; text-transform:uppercase; color:var(--ink4); }
+    .result-val { font-size:13px; color:var(--ink); font-weight:500; text-align:right; }
+    .result-val.mono { font-family:'JetBrains Mono',ui-monospace,monospace; font-size:12px; color:var(--ink2); }
+
+    .score-badge { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; padding:5px 12px; border-radius:100px; letter-spacing:0.04em; text-transform:uppercase; }
+    .score-badge.hot { background:var(--red-soft); color:var(--red); border:1px solid var(--red-border); }
+    .score-badge.warm { background:var(--amber-soft); color:var(--amber); border:1px solid var(--amber-border); }
+    .score-badge.cold { background:rgba(100,116,139,0.16); color:var(--ink3); border:1px solid var(--border2); }
+    .score-badge .badge-dot { width:6px; height:6px; border-radius:50%; background:currentColor; }
+
+    .reasoning { margin-top:10px; padding-top:10px; border-top:1px dashed var(--border2); font-size:12px; color:var(--ink2); line-height:1.55; }
+    .reasoning strong { color:var(--ink); font-weight:600; display:block; font-size:10px; letter-spacing:0.1em; text-transform:uppercase; margin-bottom:4px; }
+
+    .integration-row { margin-top:10px; padding-top:10px; border-top:1px dashed var(--border2); display:flex; flex-direction:column; gap:6px; }
+    .integration { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--ink2); }
+    .integration .ind { width:14px; height:14px; border-radius:50%; background:var(--green); color:#052e16; display:inline-flex; align-items:center; justify-content:center; font-size:9px; font-weight:700; flex-shrink:0; }
+    .integration .ind.skipped { background:var(--slate); color:var(--ink); }
+
+    /* invoice preview */
+    .invoice-preview { margin-top:10px; padding:14px; background:#fff; color:#1c1c1c; border-radius:7px; max-height:280px; overflow-y:auto; font-family:-apple-system,BlinkMacSystemFont,sans-serif; font-size:12px; line-height:1.5; border:1px solid var(--border2); }
+    .invoice-preview h2 { font-size:16px; margin-bottom:10px; color:#0f172a; }
+    .invoice-preview h3 { font-size:14px; margin:8px 0 6px; color:#0f172a; }
+    .invoice-preview p { margin-bottom:8px; color:#334155; }
+    .invoice-preview table { width:100%; border-collapse:collapse; margin:8px 0; }
+    .invoice-preview th, .invoice-preview td { padding:6px 8px; border:1px solid #e2e8f0; font-size:12px; }
+    .invoice-preview th { background:#f1f5f9; text-align:left; }
+    .invoice-preview strong { color:#0f172a; }
+
+    /* digest preview */
+    .digest-preview { margin-top:10px; padding:14px; background:var(--bg2); border:1px solid var(--border2); border-radius:7px; font-size:13px; line-height:1.65; color:var(--ink); white-space:pre-wrap; max-height:260px; overflow-y:auto; }
+    .digest-summary-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:7px; margin-top:10px; }
+    .digest-stat { background:var(--bg2); border:1px solid var(--border2); border-radius:7px; padding:9px 11px; }
+    .digest-stat-label { font-size:10px; font-weight:600; letter-spacing:0.08em; text-transform:uppercase; color:var(--ink4); margin-bottom:3px; }
+    .digest-stat-val { font-size:16px; font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums; }
+    .digest-stat.hot .digest-stat-val { color:var(--red); }
+    .digest-stat.green .digest-stat-val { color:var(--green); }
+
+    /* error state */
+    .wf-error { display:none; margin-top:10px; padding:11px 13px; border-radius:7px; background:var(--red-soft); border:1px solid var(--red-border); color:var(--red); font-size:12px; line-height:1.5; }
+    .wf-error.active { display:block; }
+
+    /* ---------- Footer ---------- */
+    .footer { margin-top:46px; padding-top:24px; border-top:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; font-size:12px; color:var(--ink4); flex-wrap:wrap; gap:12px; }
+    .footer a { color:var(--green); text-decoration:none; }
+    .footer a:hover { text-decoration:underline; }
+    .footer-stack { display:flex; gap:14px; flex-wrap:wrap; }
+    .footer-stack span { color:var(--ink3); }
+
+    /* ---------- Responsive ---------- */
+    @media (max-width: 1100px) {
+      .workflows { grid-template-columns:1fr 1fr; }
+      .stats { grid-template-columns:repeat(2,1fr); }
+    }
+    @media (max-width: 720px) {
+      nav { padding:0 16px; }
+      .nav-product { display:none; }
+      .page { padding:32px 16px 60px; }
+      .workflows { grid-template-columns:1fr; }
+      .stats { grid-template-columns:1fr 1fr; }
+      .footer { flex-direction:column; align-items:flex-start; }
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="nav-logo">
+      <div class="nav-icon">C</div>
+      <span class="nav-name">Cenred AI</span>
+      <span class="nav-sep"></span>
+      <span class="nav-product">Automation Dashboard</span>
+    </div>
+    <div class="nav-right">
+      <div class="system-status"><span class="system-dot"></span><span>All systems operational</span></div>
+      <a class="nav-link" href="https://cenredai.bizguro.net" target="_blank" rel="noopener">Portfolio</a>
+      <a class="nav-link" href="https://github.com/Cenred-AI" target="_blank" rel="noopener">GitHub</a>
+    </div>
+  </nav>
+
+  <main class="page">
+    <section class="hero">
+      <span class="hero-label">Portfolio Project 3 of 5 · Live</span>
+      <h1>Three production automations.<br/><em>One dashboard. Real results.</em></h1>
+      <p class="hero-desc">Trigger any of the three n8n workflows below. They are real automations connected to Claude, Airtable, Google Sheets, Slack and Gmail — not mockups. Submit a form, fire a digest, see the results land in seconds.</p>
+    </section>
+
+    <section class="stats">
+      <div class="stat">
+        <div class="stat-label">Workflows online</div>
+        <div class="stat-value">3<span class="stat-unit">/ 3</span></div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Integrations</div>
+        <div class="stat-value">5<span class="stat-unit">tools</span></div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Avg latency</div>
+        <div class="stat-value" id="stat-latency">—<span class="stat-unit">s</span></div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Runs this session</div>
+        <div class="stat-value" id="stat-runs">0</div>
+      </div>
+    </section>
+
+    <section class="workflows">
+
+      <!-- ============================================================
+           WORKFLOW 1 — Lead Qualify
+           ============================================================ -->
+      <article class="wf" id="wf-lead">
+        <div class="wf-header">
+          <div class="wf-num">01</div>
+          <div class="wf-title">Lead Qualify</div>
+          <div class="wf-status idle"><span class="wf-status-dot"></span><span class="wf-status-text">Idle</span></div>
+        </div>
+        <div class="wf-body">
+          <p class="wf-desc">A lead submits the contact form. Claude scores them HOT / WARM / COLD with reasoning. The row lands in Airtable, and HOT leads fire a Slack alert to <code style="color:var(--green);font-family:'JetBrains Mono',monospace;font-size:12px;">#leads</code>.</p>
+          <div class="wf-meta">
+            <span class="tag">webhook</span>
+            <span class="tag">claude</span>
+            <span class="tag">airtable</span>
+            <span class="tag">slack</span>
+          </div>
+
+          <form class="form-grid" id="lead-form">
+            <div class="field-row">
+              <div class="field">
+                <label class="field-label" for="lead-name">Name</label>
+                <input type="text" id="lead-name" name="name" placeholder="Jane Doe" required maxlength="120" />
+              </div>
+              <div class="field">
+                <label class="field-label" for="lead-email">Email</label>
+                <input type="email" id="lead-email" name="email" placeholder="jane@acme.com" required maxlength="200" />
+              </div>
+            </div>
+            <div class="field">
+              <label class="field-label" for="lead-company">Company</label>
+              <input type="text" id="lead-company" name="company" placeholder="Acme Pty Ltd" maxlength="120" />
+            </div>
+            <div class="field">
+              <label class="field-label" for="lead-message">Message</label>
+              <textarea id="lead-message" name="message" placeholder="Tell us what you're trying to automate…" required maxlength="2000"></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary btn-block" data-btn="lead">
+              <span class="btn-spinner"></span>
+              <span class="btn-text">Submit lead → Qualify</span>
+            </button>
+            <div class="sample-row">
+              <button type="button" class="btn btn-ghost" data-sample="lead-hot">Sample: HOT</button>
+              <button type="button" class="btn btn-ghost" data-sample="lead-warm">Sample: WARM</button>
+              <button type="button" class="btn btn-ghost" data-sample="lead-cold">Sample: COLD</button>
+            </div>
+          </form>
+
+          <div class="wf-error" data-error="lead"></div>
+
+          <div class="result" data-result="lead">
+            <div class="result-row">
+              <span class="result-key">AI Score</span>
+              <span id="lead-score-badge"></span>
+            </div>
+            <div class="result-row">
+              <span class="result-key">Latency</span>
+              <span class="result-val mono" id="lead-latency">—</span>
+            </div>
+            <div class="reasoning">
+              <strong>Reasoning</strong>
+              <span id="lead-reasoning">—</span>
+            </div>
+            <div class="reasoning">
+              <strong>Suggested next step</strong>
+              <span id="lead-next">—</span>
+            </div>
+            <div class="integration-row">
+              <div class="integration"><span class="ind">✓</span><span>Logged to Airtable <code style="color:var(--ink3);font-family:'JetBrains Mono',monospace;font-size:11px;" id="lead-airtable-id"></code></span></div>
+              <div class="integration" id="lead-slack-row"><span class="ind">✓</span><span id="lead-slack-text">Slack alert sent to #leads</span></div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <!-- ============================================================
+           WORKFLOW 2 — Invoice Gen
+           ============================================================ -->
+      <article class="wf" id="wf-invoice">
+        <div class="wf-header">
+          <div class="wf-num">02</div>
+          <div class="wf-title">Invoice Generator</div>
+          <div class="wf-status idle"><span class="wf-status-dot"></span><span class="wf-status-text">Idle</span></div>
+        </div>
+        <div class="wf-body">
+          <p class="wf-desc">Enter the client and a few line items. Claude drafts a professional HTML invoice (with GST), Gmail emails it to the client, and the row gets logged to Google Sheets.</p>
+          <div class="wf-meta">
+            <span class="tag">webhook</span>
+            <span class="tag">claude</span>
+            <span class="tag">gmail</span>
+            <span class="tag">sheets</span>
+          </div>
+
+          <form class="form-grid" id="invoice-form">
+            <div class="field-row">
+              <div class="field">
+                <label class="field-label" for="inv-client">Client</label>
+                <input type="text" id="inv-client" name="client" placeholder="Acme Pty Ltd" required maxlength="120" />
+              </div>
+              <div class="field">
+                <label class="field-label" for="inv-email">Client email</label>
+                <input type="email" id="inv-email" name="clientEmail" placeholder="ap@acme.com" required maxlength="200" />
+              </div>
+            </div>
+            <div class="field">
+              <label class="field-label">Line items</label>
+              <div class="lineitems" id="lineitems">
+                <div class="lineitem">
+                  <input type="text" name="li-desc" placeholder="Service description" maxlength="200" />
+                  <input type="number" name="li-amt" class="lineitem-amount" placeholder="0.00" min="0" step="0.01" />
+                </div>
+                <div class="lineitem">
+                  <input type="text" name="li-desc" placeholder="Service description" maxlength="200" />
+                  <input type="number" name="li-amt" class="lineitem-amount" placeholder="0.00" min="0" step="0.01" />
+                </div>
+                <div class="lineitem">
+                  <input type="text" name="li-desc" placeholder="Service description" maxlength="200" />
+                  <input type="number" name="li-amt" class="lineitem-amount" placeholder="0.00" min="0" step="0.01" />
+                </div>
+              </div>
+            </div>
+            <button type="submit" class="btn btn-primary btn-block" data-btn="invoice">
+              <span class="btn-spinner"></span>
+              <span class="btn-text">Generate &amp; send invoice</span>
+            </button>
+            <div class="sample-row">
+              <button type="button" class="btn btn-ghost" data-sample="inv-consulting">Sample: Consulting</button>
+              <button type="button" class="btn btn-ghost" data-sample="inv-build">Sample: Build</button>
+            </div>
+          </form>
+
+          <div class="wf-error" data-error="invoice"></div>
+
+          <div class="result" data-result="invoice">
+            <div class="result-row">
+              <span class="result-key">Invoice #</span>
+              <span class="result-val mono" id="inv-number">—</span>
+            </div>
+            <div class="result-row">
+              <span class="result-key">Total (incl. GST)</span>
+              <span class="result-val" id="inv-total">—</span>
+            </div>
+            <div class="result-row">
+              <span class="result-key">Latency</span>
+              <span class="result-val mono" id="inv-latency">—</span>
+            </div>
+            <div class="integration-row">
+              <div class="integration"><span class="ind">✓</span><span id="inv-gmail-text">Emailed to client via Gmail</span></div>
+              <div class="integration"><span class="ind">✓</span><span>Logged to Google Sheets · Invoices</span></div>
+            </div>
+            <div class="invoice-preview" id="inv-preview">—</div>
+          </div>
+        </div>
+      </article>
+
+      <!-- ============================================================
+           WORKFLOW 3 — Daily Digest
+           ============================================================ -->
+      <article class="wf" id="wf-digest">
+        <div class="wf-header">
+          <div class="wf-num">03</div>
+          <div class="wf-title">Daily Digest</div>
+          <div class="wf-status idle"><span class="wf-status-dot"></span><span class="wf-status-text">Idle</span></div>
+        </div>
+        <div class="wf-body">
+          <p class="wf-desc">A scheduled trigger runs every morning at 8am. It pulls yesterday's data from Google Sheets, Claude writes a 150-word plain-English summary, and Gmail emails it to the business owner. Trigger it manually below.</p>
+          <div class="wf-meta">
+            <span class="tag">schedule · 8am</span>
+            <span class="tag">sheets</span>
+            <span class="tag">claude</span>
+            <span class="tag">gmail</span>
+          </div>
+
+          <form class="form-grid" id="digest-form">
+            <div class="field">
+              <label class="field-label">Trigger</label>
+              <p style="font-size:12px;color:var(--ink3);line-height:1.5;">This workflow normally runs unattended at 8am AEST. Use the button below to fire it manually now and see what the owner receives in their inbox.</p>
+            </div>
+            <button type="submit" class="btn btn-primary btn-block" data-btn="digest">
+              <span class="btn-spinner"></span>
+              <span class="btn-text">Generate today's digest</span>
+            </button>
+          </form>
+
+          <div class="wf-error" data-error="digest"></div>
+
+          <div class="result" data-result="digest">
+            <div class="result-row">
+              <span class="result-key">Summary date</span>
+              <span class="result-val mono" id="dig-date">—</span>
+            </div>
+            <div class="result-row">
+              <span class="result-key">Latency</span>
+              <span class="result-val mono" id="dig-latency">—</span>
+            </div>
+            <div class="digest-summary-grid">
+              <div class="digest-stat"><div class="digest-stat-label">New leads</div><div class="digest-stat-val" id="dig-leads">—</div></div>
+              <div class="digest-stat hot"><div class="digest-stat-label">Hot leads</div><div class="digest-stat-val" id="dig-hot">—</div></div>
+              <div class="digest-stat"><div class="digest-stat-label">Invoices sent</div><div class="digest-stat-val" id="dig-invoices">—</div></div>
+              <div class="digest-stat green"><div class="digest-stat-label">Invoiced</div><div class="digest-stat-val" id="dig-invoiced">—</div></div>
+            </div>
+            <div class="integration-row">
+              <div class="integration"><span class="ind">✓</span><span>Emailed to owner via Gmail</span></div>
+            </div>
+            <div class="digest-preview" id="dig-text">—</div>
+          </div>
+        </div>
+      </article>
+
+    </section>
+
+    <footer class="footer">
+      <div class="footer-stack">
+        <span>Built with</span>
+        <span style="color:var(--ink2);">n8n</span>·<span style="color:var(--ink2);">Claude API</span>·<span style="color:var(--ink2);">Netlify</span>·<span style="color:var(--ink2);">Airtable</span>·<span style="color:var(--ink2);">Sheets</span>·<span style="color:var(--ink2);">Slack</span>·<span style="color:var(--ink2);">Gmail</span>
+      </div>
+      <div>By <a href="https://cenredai.bizguro.net" target="_blank" rel="noopener">Cenred (Cj)</a> · April 2026</div>
+    </footer>
+  </main>
+
+  <script>
+    // ============================================================
+    // Config — endpoint URLs.
+    // The Netlify proxy hides the n8n webhook URLs and handles CORS.
+    // When the dashboard is hosted on a Hostinger subdomain, set
+    // PROXY_BASE to the absolute Netlify deploy URL. When running on
+    // Netlify itself, leave it as empty string for relative paths.
+    // ============================================================
+    const PROXY_BASE = ''; // e.g. 'https://ai-automation-dashboard.netlify.app'
+    const ENDPOINTS = {
+      lead:    PROXY_BASE + '/.netlify/functions/lead',
+      invoice: PROXY_BASE + '/.netlify/functions/invoice',
+      digest:  PROXY_BASE + '/.netlify/functions/digest',
+    };
+
+    // ============================================================
+    // Sample payloads
+    // ============================================================
+    const SAMPLES = {
+      'lead-hot': {
+        name: 'Sarah Mitchell',
+        email: 'sarah@northwind-logistics.com',
+        company: 'Northwind Logistics',
+        message: "Hi — we run a fleet of 80 trucks and our dispatcher is drowning in manual booking emails. We need to automate intake and routing within the next 4 weeks. Budget approved. Can you scope this?",
+      },
+      'lead-warm': {
+        name: 'Tom Jensen',
+        email: 'tom.jensen@brightside.com.au',
+        company: 'Brightside Property',
+        message: "Looking into ways to cut down admin time on tenant enquiries. Not super urgent but want to start exploring options for next quarter.",
+      },
+      'lead-cold': {
+        name: 'Alex K',
+        email: 'alex.k.92@gmail.com',
+        company: '',
+        message: "hey just curious about ai stuff. saw your site. cool",
+      },
+      'inv-consulting': {
+        client: 'Acme Pty Ltd',
+        clientEmail: 'ap@acme.com',
+        items: [
+          { desc: 'Discovery & automation audit', amt: 1200 },
+          { desc: 'n8n workflow design (3 flows)', amt: 2400 },
+          { desc: 'Documentation & handover',     amt: 600 },
+        ],
+      },
+      'inv-build': {
+        client: 'Northwind Logistics',
+        clientEmail: 'finance@northwind-logistics.com',
+        items: [
+          { desc: 'Lead qualification automation build', amt: 1800 },
+          { desc: 'Slack + Airtable integration',         amt: 950 },
+          { desc: 'Two-week support retainer',            amt: 750 },
+        ],
+      },
+    };
+
+    // ============================================================
+    // State
+    // ============================================================
+    const state = {
+      runs: 0,
+      latencies: [],
+    };
+    const $ = (id) => document.getElementById(id);
+    const sel = (s, root) => (root || document).querySelector(s);
+    const all = (s, root) => Array.from((root || document).querySelectorAll(s));
+
+    // ============================================================
+    // Sample button wiring
+    // ============================================================
+    all('[data-sample]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.sample;
+        const sample = SAMPLES[key];
+        if (!sample) return;
+        if (key.startsWith('lead-')) {
+          $('lead-name').value = sample.name;
+          $('lead-email').value = sample.email;
+          $('lead-company').value = sample.company;
+          $('lead-message').value = sample.message;
+        } else if (key.startsWith('inv-')) {
+          $('inv-client').value = sample.client;
+          $('inv-email').value = sample.clientEmail;
+          const lis = all('#lineitems .lineitem');
+          sample.items.forEach((it, i) => {
+            if (!lis[i]) return;
+            lis[i].querySelector('input[name="li-desc"]').value = it.desc;
+            lis[i].querySelector('input[name="li-amt"]').value = it.amt;
+          });
+        }
+      });
+    });
+
+    // ============================================================
+    // Form submissions
+    // ============================================================
+    $('lead-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const payload = {
+        name: $('lead-name').value.trim(),
+        email: $('lead-email').value.trim(),
+        company: $('lead-company').value.trim(),
+        message: $('lead-message').value.trim(),
+        startTs: Date.now(),
+      };
+      if (!payload.name || !payload.email || !payload.message) return;
+      await runWorkflow('lead', payload, renderLead);
+    });
+
+    $('invoice-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const items = all('#lineitems .lineitem')
+        .map(row => ({
+          description: row.querySelector('input[name="li-desc"]').value.trim(),
+          amount: parseFloat(row.querySelector('input[name="li-amt"]').value),
+        }))
+        .filter(s => s.description && s.amount > 0);
+
+      if (items.length === 0) {
+        showError('invoice', 'Please add at least one line item with a description and amount.');
+        return;
+      }
+
+      const payload = {
+        client: $('inv-client').value.trim(),
+        clientEmail: $('inv-email').value.trim(),
+        services: items,
+        startTs: Date.now(),
+      };
+      if (!payload.client || !payload.clientEmail) return;
+      await runWorkflow('invoice', payload, renderInvoice);
+    });
+
+    $('digest-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const payload = { startTs: Date.now() };
+      await runWorkflow('digest', payload, renderDigest);
+    });
+
+    // ============================================================
+    // Workflow runner — handles UI state + fetch + render
+    // ============================================================
+    async function runWorkflow(key, payload, renderFn) {
+      const card = $('wf-' + key);
+      const btn = sel(`[data-btn="${key}"]`);
+      const result = sel(`[data-result="${key}"]`);
+      const error = sel(`[data-error="${key}"]`);
+
+      setStatus(key, 'running');
+      card.classList.remove('done', 'error');
+      card.classList.add('running');
+      btn.disabled = true;
+      btn.dataset.loading = 'true';
+      result.classList.remove('active');
+      error.classList.remove('active');
+
+      const started = performance.now();
+
+      try {
+        const res = await fetch(ENDPOINTS[key], {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await safeJson(res);
+        if (!res.ok) {
+          const msg = (data && data.error) || `Workflow failed (${res.status})`;
+          throw new Error(msg);
+        }
+        if (data && data.ok === false && data.error) throw new Error(data.error);
+
+        const elapsedMs = performance.now() - started;
+        renderFn(data, elapsedMs);
+        setStatus(key, 'done');
+        card.classList.remove('running');
+        card.classList.add('done');
+        result.classList.add('active');
+
+        recordRun(elapsedMs);
+      } catch (err) {
+        showError(key, err.message || 'Unexpected error');
+        setStatus(key, 'error');
+        card.classList.remove('running');
+        card.classList.add('error');
+      } finally {
+        btn.disabled = false;
+        btn.dataset.loading = 'false';
+      }
+    }
+
+    // ============================================================
+    // Renderers
+    // ============================================================
+    function renderLead(data, elapsedMs) {
+      const score = (data.score || 'COLD').toUpperCase();
+      const cls = score.toLowerCase();
+      const badge = $('lead-score-badge');
+      badge.innerHTML = `<span class="score-badge ${cls}"><span class="badge-dot"></span>${score}</span>`;
+
+      $('lead-reasoning').textContent = data.reasoning || '—';
+      $('lead-next').textContent = data.suggestedAction || '—';
+      $('lead-latency').textContent = formatLatency(data.timing?.totalMs ?? elapsedMs);
+      $('lead-airtable-id').textContent = data.airtableId ? `· ${data.airtableId}` : '';
+
+      const slackRow = $('lead-slack-row');
+      const slackInd = slackRow.querySelector('.ind');
+      const slackText = $('lead-slack-text');
+      if (data.slackAlertSent) {
+        slackInd.classList.remove('skipped');
+        slackInd.textContent = '✓';
+        slackText.textContent = 'Slack alert sent to #leads';
+      } else {
+        slackInd.classList.add('skipped');
+        slackInd.textContent = '—';
+        slackText.textContent = `Slack skipped (lead scored ${score}, only HOT leads alert)`;
+      }
+    }
+
+    function renderInvoice(data, elapsedMs) {
+      $('inv-number').textContent = data.invoiceNumber || '—';
+      const total = Number(data.total || 0);
+      $('inv-total').textContent = '$' + total.toFixed(2) + ' AUD';
+      $('inv-latency').textContent = formatLatency(data.timing?.totalMs ?? elapsedMs);
+      $('inv-gmail-text').textContent = `Emailed to ${data.clientEmail || 'client'} via Gmail`;
+
+      const preview = $('inv-preview');
+      // The invoice HTML from Claude uses h2/h3/table/tr/td/p/strong only.
+      // We sanitise loosely by stripping <script> tags as a safety net.
+      const safe = String(data.invoiceHtml || '').replace(/<script[\s\S]*?<\/script>/gi, '');
+      preview.innerHTML = safe || '<em>No preview returned.</em>';
+    }
+
+    function renderDigest(data, elapsedMs) {
+      $('dig-date').textContent = data.summaryDate || '—';
+      $('dig-latency').textContent = formatLatency(data.timing?.totalMs ?? elapsedMs);
+      $('dig-leads').textContent = data.leads ?? 0;
+      $('dig-hot').textContent = data.hotLeads ?? 0;
+      $('dig-invoices').textContent = data.invoicesSent ?? 0;
+      $('dig-invoiced').textContent = '$' + Number(data.totalInvoiced || 0).toFixed(0);
+      $('dig-text').textContent = data.digestText || '—';
+    }
+
+    // ============================================================
+    // Helpers
+    // ============================================================
+    function setStatus(key, status) {
+      const card = $('wf-' + key);
+      const dot = sel('.wf-status', card);
+      const text = sel('.wf-status-text', card);
+      dot.classList.remove('idle', 'running', 'done', 'error');
+      dot.classList.add(status);
+      text.textContent = status === 'idle' ? 'Idle'
+        : status === 'running' ? 'Running…'
+        : status === 'done' ? 'Done'
+        : 'Error';
+    }
+
+    function showError(key, message) {
+      const error = sel(`[data-error="${key}"]`);
+      error.textContent = message;
+      error.classList.add('active');
+      sel(`[data-result="${key}"]`).classList.remove('active');
+    }
+
+    function formatLatency(ms) {
+      if (!Number.isFinite(ms) || ms < 0) return '—';
+      if (ms < 1000) return Math.round(ms) + 'ms';
+      return (ms / 1000).toFixed(2) + 's';
+    }
+
+    function recordRun(elapsedMs) {
+      state.runs += 1;
+      state.latencies.push(elapsedMs);
+      $('stat-runs').textContent = state.runs;
+      const avg = state.latencies.reduce((a, b) => a + b, 0) / state.latencies.length;
+      const avgSec = (avg / 1000).toFixed(1);
+      $('stat-latency').innerHTML = avgSec + '<span class="stat-unit">s</span>';
+    }
+
+    async function safeJson(res) {
+      try { return await res.json(); } catch (e) { return null; }
+    }
+  </script>
+</body>
+</html>

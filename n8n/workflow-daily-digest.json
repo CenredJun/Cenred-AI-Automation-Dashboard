@@ -1,0 +1,193 @@
+{
+  "name": "Daily Digest — Sheets → Claude → Gmail (manual or 8am scheduled)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "daily-digest",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook (manual trigger)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 320],
+      "webhookId": "daily-digest"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "cronExpression", "expression": "0 8 * * *" }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule (8am daily)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 480]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Resolve the start timestamp regardless of which trigger fired.\nconst body = ($json && $json.body) ? $json.body : {};\nreturn [{\n  json: {\n    startTs: body.startTs || Date.now(),\n    triggeredBy: body.startTs ? 'manual' : 'schedule',\n  },\n}];"
+      },
+      "id": "init",
+      "name": "Init Run",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 400]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "REPLACE_WITH_GOOGLE_SHEETS_DOC_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "DailyData"
+        },
+        "options": {}
+      },
+      "id": "sheets-read",
+      "name": "Google Sheets — Read DailyData",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [720, 400],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_GOOGLE_SHEETS_CRED_ID",
+          "name": "Google Sheets — OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Aggregate yesterday's row from the DailyData sheet.\n// Expected columns: Date, Leads, HotLeads, InvoicesSent, TotalInvoiced.\n// If no row matches yesterday, fall back to the latest row.\nconst rows = $input.all().map(i => i.json);\nconst meta = $('Init Run').item.json;\n\nfunction toYmd(d) {\n  const pad = (n) => String(n).padStart(2, '0');\n  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;\n}\n\nconst yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);\nconst targetDate = toYmd(yesterday);\n\nlet row = rows.find(r => String(r.Date || '').slice(0, 10) === targetDate);\nif (!row && rows.length > 0) row = rows[rows.length - 1];\nif (!row) row = { Date: targetDate, Leads: 0, HotLeads: 0, InvoicesSent: 0, TotalInvoiced: 0 };\n\nconst summaryDate = String(row.Date || targetDate).slice(0, 10);\nconst leads = Number(row.Leads || 0);\nconst hotLeads = Number(row.HotLeads || 0);\nconst invoicesSent = Number(row.InvoicesSent || 0);\nconst totalInvoiced = Number(row.TotalInvoiced || 0);\n\nreturn [{\n  json: {\n    ...meta,\n    summaryDate,\n    leads,\n    hotLeads,\n    invoicesSent,\n    totalInvoiced,\n  },\n}];"
+      },
+      "id": "aggregate",
+      "name": "Aggregate Yesterday",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [960, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "anthropicApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-6\",\n  \"max_tokens\": 1024,\n  \"temperature\": 0.6,\n  \"system\": \"You are a calm, articulate executive assistant writing the morning digest for a busy business owner.\\n\\nTASK\\nGiven a single day's business activity figures, write a 150-200 word plain-English summary the owner can read in 60 seconds with their morning coffee.\\n\\nTONE\\n- Warm, professional, confident.\\n- Flowing paragraphs — NO bullet points, NO headings, NO bold.\\n- Concrete numbers, not vague phrases.\\n- Highlight: total leads, how many were HOT, invoices sent and total amount invoiced.\\n- Call out anything notable: a particularly strong day, an unusual drop, all leads cold (worth investigating), zero invoices sent (worth checking the pipeline).\\n- End with a single forward-looking sentence about the day ahead.\\n\\nOUTPUT FORMAT (CRITICAL)\\nReturn ONLY the digest prose — no preamble, no 'Good morning,' opener (the email template handles that), no signature, no code fences. 2-3 short paragraphs.\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Date being summarised: {{ $json.summaryDate }}\\n\\nFigures:\\n- Total new leads: {{ $json.leads }}\\n- Hot leads: {{ $json.hotLeads }}\\n- Invoices sent: {{ $json.invoicesSent }}\\n- Total invoiced (AUD): ${{ $json.totalInvoiced.toFixed(2) }}\\n\\nWrite the digest now.\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "claude-digest",
+      "name": "Claude — Write Digest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1200, 400],
+      "credentials": {
+        "anthropicApi": {
+          "id": "REPLACE_WITH_ANTHROPIC_CRED_ID",
+          "name": "Anthropic — Claude"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Build the email HTML body around Claude's digest text.\nconst meta = $('Aggregate Yesterday').item.json;\nconst claudeResp = $json;\n\nfunction extractText(node) {\n  if (node && Array.isArray(node.content) && node.content[0] && typeof node.content[0].text === 'string') {\n    return node.content[0].text;\n  }\n  throw new Error('Could not extract Claude digest text');\n}\n\nconst digestText = extractText(claudeResp).trim();\nconst paragraphs = digestText.split(/\\n\\s*\\n/).map(p => `<p style=\"margin:0 0 14px;font-size:15px;line-height:1.65;color:#1c1c1c;\">${p.trim()}</p>`).join('');\n\nconst html = `<!doctype html>\n<html><body style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;background:#f7f7f5;margin:0;padding:24px;\">\n  <div style=\"max-width:580px;margin:0 auto;background:#ffffff;border:1px solid #e5e5e0;border-radius:12px;overflow:hidden;\">\n    <div style=\"padding:20px 28px;border-bottom:1px solid #e5e5e0;background:#0f172a;color:#ffffff;\">\n      <div style=\"font-size:11px;letter-spacing:0.12em;text-transform:uppercase;opacity:0.7;margin-bottom:4px;\">Daily Digest</div>\n      <div style=\"font-size:18px;font-weight:600;\">Your morning brief — ${meta.summaryDate}</div>\n    </div>\n    <div style=\"padding:24px 28px;\">\n      <p style=\"margin:0 0 18px;font-size:15px;color:#1c1c1c;\">Good morning,</p>\n      ${paragraphs}\n      <table style=\"width:100%;border-collapse:collapse;margin-top:18px;border-top:1px solid #e5e5e0;padding-top:14px;\">\n        <tr>\n          <td style=\"padding:6px 0;font-size:13px;color:#64748b;\">New leads</td>\n          <td style=\"padding:6px 0;font-size:13px;color:#1c1c1c;text-align:right;font-weight:600;\">${meta.leads}</td>\n        </tr>\n        <tr>\n          <td style=\"padding:6px 0;font-size:13px;color:#64748b;\">Hot leads</td>\n          <td style=\"padding:6px 0;font-size:13px;color:#dc2626;text-align:right;font-weight:600;\">${meta.hotLeads}</td>\n        </tr>\n        <tr>\n          <td style=\"padding:6px 0;font-size:13px;color:#64748b;\">Invoices sent</td>\n          <td style=\"padding:6px 0;font-size:13px;color:#1c1c1c;text-align:right;font-weight:600;\">${meta.invoicesSent}</td>\n        </tr>\n        <tr>\n          <td style=\"padding:6px 0;font-size:13px;color:#64748b;\">Total invoiced</td>\n          <td style=\"padding:6px 0;font-size:13px;color:#15803d;text-align:right;font-weight:600;\">$${meta.totalInvoiced.toFixed(2)}</td>\n        </tr>\n      </table>\n    </div>\n    <div style=\"padding:14px 28px;border-top:1px solid #e5e5e0;background:#fafaf8;font-size:11px;color:#94a3b8;\">\n      Generated by Cenred AI Automation Dashboard · Triggered ${meta.triggeredBy}\n    </div>\n  </div>\n</body></html>`;\n\nreturn [{\n  json: {\n    ...meta,\n    digestText,\n    html,\n  },\n}];"
+      },
+      "id": "build-email",
+      "name": "Build Email HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1440, 400]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $env.DIGEST_RECIPIENT_EMAIL }}",
+        "subject": "=Daily Digest — {{ $json.summaryDate }}",
+        "emailType": "html",
+        "message": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "gmail-send",
+      "name": "Gmail — Send Digest",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1680, 400],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_WITH_GMAIL_CRED_ID",
+          "name": "Gmail — OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"ok\": true,\n  \"summaryDate\": {{ JSON.stringify($('Build Email HTML').item.json.summaryDate) }},\n  \"leads\": {{ $('Build Email HTML').item.json.leads }},\n  \"hotLeads\": {{ $('Build Email HTML').item.json.hotLeads }},\n  \"invoicesSent\": {{ $('Build Email HTML').item.json.invoicesSent }},\n  \"totalInvoiced\": {{ $('Build Email HTML').item.json.totalInvoiced }},\n  \"digestText\": {{ JSON.stringify($('Build Email HTML').item.json.digestText) }},\n  \"emailSent\": true,\n  \"timing\": { \"totalMs\": {{ Date.now() - ($('Build Email HTML').item.json.startTs || Date.now()) }} }\n}",
+        "options": {}
+      },
+      "id": "respond-ok",
+      "name": "Respond to UI",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1920, 400]
+    }
+  ],
+  "connections": {
+    "Webhook (manual trigger)": {
+      "main": [[{ "node": "Init Run", "type": "main", "index": 0 }]]
+    },
+    "Schedule (8am daily)": {
+      "main": [[{ "node": "Init Run", "type": "main", "index": 0 }]]
+    },
+    "Init Run": {
+      "main": [[{ "node": "Google Sheets — Read DailyData", "type": "main", "index": 0 }]]
+    },
+    "Google Sheets — Read DailyData": {
+      "main": [[{ "node": "Aggregate Yesterday", "type": "main", "index": 0 }]]
+    },
+    "Aggregate Yesterday": {
+      "main": [[{ "node": "Claude — Write Digest", "type": "main", "index": 0 }]]
+    },
+    "Claude — Write Digest": {
+      "main": [[{ "node": "Build Email HTML", "type": "main", "index": 0 }]]
+    },
+    "Build Email HTML": {
+      "main": [[{ "node": "Gmail — Send Digest", "type": "main", "index": 0 }]]
+    },
+    "Gmail — Send Digest": {
+      "main": [[{ "node": "Respond to UI", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    { "name": "daily-digest" },
+    { "name": "claude" },
+    { "name": "google-sheets" },
+    { "name": "gmail" }
+  ],
+  "triggerCount": 2,
+  "versionId": "1.0.0"
+}

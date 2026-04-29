@@ -1,0 +1,172 @@
+{
+  "name": "Invoice Gen — Webhook → Claude → Gmail → Sheets",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "invoice-gen",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook (invoice form)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 400],
+      "webhookId": "invoice-gen"
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Validate and normalise the invoice payload before sending it to Claude.\nconst body = $json.body || {};\nconst client = (body.client || '').trim();\nconst clientEmail = (body.clientEmail || '').trim();\nconst services = Array.isArray(body.services) ? body.services : [];\n\nif (!client) throw new Error('Missing client name');\nif (!clientEmail) throw new Error('Missing client email');\nif (services.length === 0) throw new Error('At least one service line item is required');\n\nconst lineItems = services\n  .map(s => ({\n    description: String(s.description || '').trim(),\n    amount: Number(s.amount || 0),\n  }))\n  .filter(s => s.description && s.amount > 0);\n\nif (lineItems.length === 0) throw new Error('No valid line items provided');\n\nconst subtotal = lineItems.reduce((sum, l) => sum + l.amount, 0);\nconst gst = Math.round(subtotal * 0.10 * 100) / 100;\nconst total = Math.round((subtotal + gst) * 100) / 100;\n\nconst now = new Date();\nconst pad = (n) => String(n).padStart(2, '0');\nconst dateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;\nconst invoiceNumber = `INV-${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}-${String(now.getTime()).slice(-4)}`;\n\nreturn [{\n  json: {\n    client,\n    clientEmail,\n    lineItems,\n    subtotal,\n    gst,\n    total,\n    dateStr,\n    invoiceNumber,\n    startTs: body.startTs || Date.now(),\n  },\n}];"
+      },
+      "id": "validate-input",
+      "name": "Validate & Normalise",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "anthropicApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-6\",\n  \"max_tokens\": 2048,\n  \"temperature\": 0.4,\n  \"system\": \"You are a professional invoice generator.\\n\\nTASK\\nGiven invoice metadata (number, date, client, line items, subtotal, GST, total), produce a clean, professional invoice as HTML.\\n\\nOUTPUT FORMAT (CRITICAL)\\nReturn ONLY clean HTML — no markdown, no code fences, no preamble, no closing remarks. Use ONLY these tags: h2, h3, table, thead, tbody, tr, th, td, p, strong, br, div.\\n\\nSTRUCTURE\\n1. <h2> with the invoice number\\n2. <p> block with invoice date, client name, and 'Bill to:' line\\n3. <table> with headers Description / Amount, one <tr> per line item\\n4. Below the table: subtotal row, GST (10%) row, total row (bold)\\n5. <p> with payment terms: 'Payment due within 14 days.'\\n6. <p> with bank details placeholder: 'BSB: 123-456 · Account: 12345678 · Reference: <invoice number>'\\n\\nSTYLING\\n- Use inline style attributes for table borders and padding (border:1px solid #ccc, padding:8px).\\n- Right-align all amount columns.\\n- Format amounts as $X.XX (two decimals, AUD).\\n- Total row: bold, slightly larger.\\n\\nDO NOT add any commentary, signature, or 'thank you' text outside the structure above.\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Invoice number: {{ $json.invoiceNumber }}\\nDate: {{ $json.dateStr }}\\nClient: {{ $json.client }}\\nClient email: {{ $json.clientEmail }}\\n\\nLine items (JSON):\\n{{ JSON.stringify($json.lineItems) }}\\n\\nSubtotal: ${{ $json.subtotal.toFixed(2) }}\\nGST (10%): ${{ $json.gst.toFixed(2) }}\\nTotal: ${{ $json.total.toFixed(2) }}\\n\\nReturn the invoice HTML now.\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "claude-invoice",
+      "name": "Claude — Generate Invoice HTML",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 400],
+      "credentials": {
+        "anthropicApi": {
+          "id": "REPLACE_WITH_ANTHROPIC_CRED_ID",
+          "name": "Anthropic — Claude"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Extract Claude's HTML and merge with invoice metadata.\nconst meta = $('Validate & Normalise').item.json;\nconst claudeResp = $json;\n\nfunction extractText(node) {\n  if (node && Array.isArray(node.content) && node.content[0] && typeof node.content[0].text === 'string') {\n    return node.content[0].text;\n  }\n  throw new Error('Could not extract Claude HTML response');\n}\n\nlet html = extractText(claudeResp).trim();\n// Strip any accidental code fences\nhtml = html.replace(/^```(?:html)?\\s*/i, '').replace(/```\\s*$/i, '').trim();\n\nconst servicesString = meta.lineItems.map(l => `${l.description} ($${l.amount.toFixed(2)})`).join('; ');\n\nreturn [{\n  json: {\n    ...meta,\n    invoiceHtml: html,\n    servicesString,\n  },\n}];"
+      },
+      "id": "assemble-invoice",
+      "name": "Assemble Invoice",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [960, 400]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.clientEmail }}",
+        "subject": "=Invoice {{ $json.invoiceNumber }} from Cenred AI",
+        "emailType": "html",
+        "message": "={{ $json.invoiceHtml }}",
+        "options": {}
+      },
+      "id": "gmail-send",
+      "name": "Gmail — Send Invoice",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1200, 400],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_WITH_GMAIL_CRED_ID",
+          "name": "Gmail — OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "REPLACE_WITH_GOOGLE_SHEETS_DOC_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "Invoices"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Client": "={{ $('Assemble Invoice').item.json.client }}",
+            "Services": "={{ $('Assemble Invoice').item.json.servicesString }}",
+            "Amount": "={{ $('Assemble Invoice').item.json.total }}",
+            "Status": "Sent",
+            "Date": "={{ $('Assemble Invoice').item.json.dateStr }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "sheets-log",
+      "name": "Google Sheets — Log Invoice",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1440, 400],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_GOOGLE_SHEETS_CRED_ID",
+          "name": "Google Sheets — OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"ok\": true,\n  \"invoiceNumber\": {{ JSON.stringify($('Assemble Invoice').item.json.invoiceNumber) }},\n  \"client\": {{ JSON.stringify($('Assemble Invoice').item.json.client) }},\n  \"clientEmail\": {{ JSON.stringify($('Assemble Invoice').item.json.clientEmail) }},\n  \"subtotal\": {{ $('Assemble Invoice').item.json.subtotal }},\n  \"gst\": {{ $('Assemble Invoice').item.json.gst }},\n  \"total\": {{ $('Assemble Invoice').item.json.total }},\n  \"date\": {{ JSON.stringify($('Assemble Invoice').item.json.dateStr) }},\n  \"invoiceHtml\": {{ JSON.stringify($('Assemble Invoice').item.json.invoiceHtml) }},\n  \"emailSent\": true,\n  \"loggedToSheet\": true,\n  \"timing\": { \"totalMs\": {{ Date.now() - ($('Assemble Invoice').item.json.startTs || Date.now()) }} }\n}",
+        "options": {}
+      },
+      "id": "respond-ok",
+      "name": "Respond to UI",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1680, 400]
+    }
+  ],
+  "connections": {
+    "Webhook (invoice form)": {
+      "main": [[{ "node": "Validate & Normalise", "type": "main", "index": 0 }]]
+    },
+    "Validate & Normalise": {
+      "main": [[{ "node": "Claude — Generate Invoice HTML", "type": "main", "index": 0 }]]
+    },
+    "Claude — Generate Invoice HTML": {
+      "main": [[{ "node": "Assemble Invoice", "type": "main", "index": 0 }]]
+    },
+    "Assemble Invoice": {
+      "main": [[{ "node": "Gmail — Send Invoice", "type": "main", "index": 0 }]]
+    },
+    "Gmail — Send Invoice": {
+      "main": [[{ "node": "Google Sheets — Log Invoice", "type": "main", "index": 0 }]]
+    },
+    "Google Sheets — Log Invoice": {
+      "main": [[{ "node": "Respond to UI", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    { "name": "invoice-gen" },
+    { "name": "claude" },
+    { "name": "gmail" },
+    { "name": "google-sheets" }
+  ],
+  "triggerCount": 1,
+  "versionId": "1.0.0"
+}
